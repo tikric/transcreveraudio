@@ -292,11 +292,36 @@ export default function TranscribeView({ onTranscriptionSuccess }: TranscribeVie
       clearInterval(textInterval);
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Erro inesperante ao processar o áudio.');
+        let errMsg = 'Erro desconhecido ao processar o áudio no servidor.';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errMsg = errorData.error || errMsg;
+          } else {
+            // Not JSON - might be a Cloudflare HTML error block (524 Timeout / 413 Entity Too Large)
+            const textResponse = await response.text();
+            if (response.status === 413 || textResponse.includes('413') || textResponse.includes('Request Entity Too Large') || textResponse.includes('Payload Too Large')) {
+              errMsg = 'O arquivo de áudio enviado é muito grande e excedeu o limite máximo do servidor (máx. 50MB no Cloud Run / Cloudflare).';
+            } else if (response.status === 524 || textResponse.includes('524') || textResponse.includes('timeout')) {
+              errMsg = 'Tempo de resposta excedido (Timeout Gateway 524). O Cloudflare interrompeu a requisição por demorar mais de 100 segundos. Tente usar arquivos menores ou use o Groq Whisper para transcrições ultra rápidas.';
+            } else {
+              errMsg = `O servidor respondeu com erro (Status: ${response.status}).`;
+            }
+          }
+        } catch (e) {
+          errMsg = `Erro no processamento (Código ${response.status}).`;
+        }
+        throw new Error(errMsg);
       }
 
-      const result: Transcript = await response.json();
+      let result: Transcript;
+      try {
+        result = await response.json();
+      } catch (jsonErr) {
+        console.error('Failed to parse final transcript JSON:', jsonErr);
+        throw new Error('O formato da resposta do servidor é inválido. A transcrição foi interrompida ou o servidor sofreu um timeout.');
+      }
       setStatus('success');
       
       // Clean up inputs

@@ -22,35 +22,51 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 const DATA_DIR = path.join(process.cwd(), 'data');
 const TRANSCRIPTS_FILE = path.join(DATA_DIR, 'transcripts.json');
 
-// Ensure database directory and file exist
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-if (!fs.existsSync(TRANSCRIPTS_FILE) || fs.statSync(TRANSCRIPTS_FILE).size === 0) {
-  fs.writeFileSync(TRANSCRIPTS_FILE, JSON.stringify([], null, 2), 'utf-8');
+// Local in-memory fallback for read-only environments (like Cloudflare workers / serverless hosts)
+let inMemoryTranscripts: any[] = [];
+
+// Ensure database directory and file exist with safe fallback
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(TRANSCRIPTS_FILE) || fs.statSync(TRANSCRIPTS_FILE).size === 0) {
+    fs.writeFileSync(TRANSCRIPTS_FILE, JSON.stringify([], null, 2), 'utf-8');
+  }
+} catch (e) {
+  console.warn('Filesystem is read-only or not writable. Storing transcripts in in-memory state instead:', e);
 }
 
 // Read/Write database helpers
 function getTranscripts(): any[] {
   try {
+    if (!fs.existsSync(TRANSCRIPTS_FILE)) {
+      return inMemoryTranscripts;
+    }
     const data = fs.readFileSync(TRANSCRIPTS_FILE, 'utf-8');
     if (!data.trim()) {
       saveTranscripts([]);
-      return [];
+      return inMemoryTranscripts;
     }
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    if (Array.isArray(parsed)) {
+      inMemoryTranscripts = parsed;
+    }
+    return inMemoryTranscripts;
   } catch (err) {
-    console.error('Error reading transcripts file, resetting:', err);
-    saveTranscripts([]);
-    return [];
+    console.warn('Error reading transcripts file, falling back to in-memory store:', err);
+    return inMemoryTranscripts;
   }
 }
 
 function saveTranscripts(transcripts: any[]) {
+  inMemoryTranscripts = transcripts;
   try {
-    fs.writeFileSync(TRANSCRIPTS_FILE, JSON.stringify(transcripts, null, 2), 'utf-8');
+    if (fs.existsSync(DATA_DIR)) {
+      fs.writeFileSync(TRANSCRIPTS_FILE, JSON.stringify(transcripts, null, 2), 'utf-8');
+    }
   } catch (err) {
-    console.error('Error saving transcripts file:', err);
+    console.warn('Error saving transcripts file (persisted in memories only):', err);
   }
 }
 
