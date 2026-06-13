@@ -37,7 +37,9 @@ export default function SettingsView() {
     return safeGetLocalStorage('fosiscribe_default_language', 'pt-BR');
   });
   const [pauseThreshold, setPauseThreshold] = useState(() => {
-    return safeGetLocalStorage('fosiscribe_pause_threshold', '1.5'); // default to 1.5s
+    const val = safeGetLocalStorage('fosiscribe_pause_threshold', '1.5');
+    const num = parseFloat(val);
+    return isNaN(num) ? '1.5' : num.toFixed(1);
   });
   const [autoSummary, setAutoSummary] = useState(() => {
     return safeGetLocalStorage('fosiscribe_auto_summary', 'true') === 'true';
@@ -103,11 +105,30 @@ export default function SettingsView() {
                 onChange={(e) => setPauseThreshold(e.target.value)}
                 className="w-full bg-black/45 border border-white/10 text-white text-xs rounded-xl px-3 py-2.5 outline-none cursor-pointer focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="1" className="bg-[#0e0d16] text-[#b3b3b3]">1.0 segundo (Cortes frequentes)</option>
+                <option value="0.1" className="bg-[#0e0d16] text-[#b3b3b3]">0.1 segundos (Corte ultra-rápido instantâneo)</option>
+                <option value="0.2" className="bg-[#0e0d16] text-[#b3b3b3]">0.2 segundos</option>
+                <option value="0.3" className="bg-[#0e0d16] text-[#b3b3b3]">0.3 segundos</option>
+                <option value="0.4" className="bg-[#0e0d16] text-[#b3b3b3]">0.4 segundos</option>
+                <option value="0.5" className="bg-[#0e0d16] text-[#b3b3b3]">0.5 segundos (Corte rápido por sílabas/mínima pausa)</option>
+                <option value="0.6" className="bg-[#0e0d16] text-[#b3b3b3]">0.6 segundos</option>
+                <option value="0.7" className="bg-[#0e0d16] text-[#b3b3b3]">0.7 segundos</option>
+                <option value="0.8" className="bg-[#0e0d16] text-[#b3b3b3]">0.8 segundos</option>
+                <option value="0.9" className="bg-[#0e0d16] text-[#b3b3b3]">0.9 segundos</option>
+                <option value="1.0" className="bg-[#0e0d16] text-[#b3b3b3]">1.0 segundo (Cortes ultra frequentes - Sensibilidade Máxima)</option>
+                <option value="1.1" className="bg-[#0e0d16] text-[#b3b3b3]">1.1 segundos</option>
+                <option value="1.2" className="bg-[#0e0d16] text-[#b3b3b3]">1.2 segundos</option>
+                <option value="1.3" className="bg-[#0e0d16] text-[#b3b3b3]">1.3 segundos</option>
+                <option value="1.4" className="bg-[#0e0d16] text-[#b3b3b3]">1.4 segundos</option>
                 <option value="1.5" className="bg-[#0e0d16] text-[#b3b3b3]">1.5 segundos (Padrão recomendado)</option>
-                <option value="2" className="bg-[#0e0d16] text-[#b3b3b3]">2.0 segundos (Mais espaçado)</option>
-                <option value="3" className="bg-[#0e0d16] text-[#b3b3b3]">3.0 segundos (Ideal para palestras)</option>
-                <option value="5" className="bg-[#0e0d16] text-[#b3b3b3]">5.0 segundos (Cortes apenas para repouso completo)</option>
+                <option value="1.6" className="bg-[#0e0d16] text-[#b3b3b3]">1.6 segundos</option>
+                <option value="1.7" className="bg-[#0e0d16] text-[#b3b3b3]">1.7 segundos</option>
+                <option value="1.8" className="bg-[#0e0d16] text-[#b3b3b3]">1.8 segundos</option>
+                <option value="1.9" className="bg-[#0e0d16] text-[#b3b3b3]">1.9 segundos</option>
+                <option value="2.0" className="bg-[#0e0d16] text-[#b3b3b3]">2.0 segundos (Cortes espaçados)</option>
+                <option value="2.5" className="bg-[#0e0d16] text-[#b3b3b3]">2.5 segundos</option>
+                <option value="3.0" className="bg-[#0e0d16] text-[#b3b3b3]">3.0 segundos (Ideal para palestras)</option>
+                <option value="4.0" className="bg-[#0e0d16] text-[#b3b3b3]">4.0 segundos</option>
+                <option value="5.0" className="bg-[#0e0d16] text-[#b3b3b3]">5.0 segundos (Cortes apenas para repouso completo)</option>
               </select>
               <p className="text-[10px] text-gray-400">Intervalo de ausência de voz necessário para que a Inteligência Artificial decida criar um novo bloco temática.</p>
             </div>

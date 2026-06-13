@@ -18,6 +18,17 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [sharedId, setSharedId] = useState<string | null>(null);
 
+  // Helper to prevent duplicate React keys by deduplicating transcripts by id
+  const filterUniqueTranscripts = (items: Transcript[]): Transcript[] => {
+    const seen = new Set<string>();
+    return items.filter((item) => {
+      if (!item || !item.id) return false;
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  };
+
   // Parse path to check if we are accessing a share link
   useEffect(() => {
     const path = window.location.pathname;
@@ -37,16 +48,16 @@ export default function App() {
       const response = await fetch('/api/transcripts');
       if (response.ok) {
         const data = await response.json();
-        setTranscripts(data);
+        setTranscripts(filterUniqueTranscripts(data));
         try {
-          localStorage.setItem('fosiscribe_offline_transcripts', JSON.stringify(data));
+          localStorage.setItem('fosiscribe_offline_transcripts', JSON.stringify(filterUniqueTranscripts(data)));
         } catch (e) {}
       } else {
         // Fallback to local storage if API fails (e.g. 405 Method Not Allowed)
         const offline = localStorage.getItem('fosiscribe_offline_transcripts');
         if (offline) {
           try {
-            setTranscripts(JSON.parse(offline));
+            setTranscripts(filterUniqueTranscripts(JSON.parse(offline)));
           } catch (e) {}
         }
       }
@@ -55,7 +66,7 @@ export default function App() {
       const offline = localStorage.getItem('fosiscribe_offline_transcripts');
       if (offline) {
         try {
-          setTranscripts(JSON.parse(offline));
+          setTranscripts(filterUniqueTranscripts(JSON.parse(offline)));
         } catch (e) {}
       }
     } finally {
@@ -73,7 +84,7 @@ export default function App() {
   const handleTranscriptionSuccess = async (newTranscript: Transcript) => {
     // Save to server if we can, but also save to local memory & localStorage
     setTranscripts((prev) => {
-      const updated = [newTranscript, ...prev];
+      const updated = filterUniqueTranscripts([newTranscript, ...prev]);
       try {
         localStorage.setItem('fosiscribe_offline_transcripts', JSON.stringify(updated));
       } catch (e) {}
@@ -97,7 +108,7 @@ export default function App() {
   // Update transcript (saving edited entries directly back to local server)
   const handleUpdateTranscript = async (updatedTranscript: Transcript) => {
     setTranscripts((prev) => {
-      const updated = prev.map((t) => (t.id === updatedTranscript.id ? updatedTranscript : t));
+      const updated = filterUniqueTranscripts(prev.map((t) => (t.id === updatedTranscript.id ? updatedTranscript : t)));
       try {
         localStorage.setItem('fosiscribe_offline_transcripts', JSON.stringify(updated));
       } catch (e) {}
