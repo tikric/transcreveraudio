@@ -38,9 +38,26 @@ export default function App() {
       if (response.ok) {
         const data = await response.json();
         setTranscripts(data);
+        try {
+          localStorage.setItem('fosiscribe_offline_transcripts', JSON.stringify(data));
+        } catch (e) {}
+      } else {
+        // Fallback to local storage if API fails (e.g. 405 Method Not Allowed)
+        const offline = localStorage.getItem('fosiscribe_offline_transcripts');
+        if (offline) {
+          try {
+            setTranscripts(JSON.parse(offline));
+          } catch (e) {}
+        }
       }
     } catch (err) {
-      console.error('Error fetching transcripts:', err);
+      console.error('Error fetching transcripts, falling back to offline storage:', err);
+      const offline = localStorage.getItem('fosiscribe_offline_transcripts');
+      if (offline) {
+        try {
+          setTranscripts(JSON.parse(offline));
+        } catch (e) {}
+      }
     } finally {
       setLoading(false);
     }
@@ -54,46 +71,66 @@ export default function App() {
 
   // Handle new transcript completion
   const handleTranscriptionSuccess = async (newTranscript: Transcript) => {
-    setTranscripts((prev) => [newTranscript, ...prev]);
+    // Save to server if we can, but also save to local memory & localStorage
+    setTranscripts((prev) => {
+      const updated = [newTranscript, ...prev];
+      try {
+        localStorage.setItem('fosiscribe_offline_transcripts', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    try {
+      await fetch('/api/transcripts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newTranscript),
+      });
+    } catch (err) {
+      console.warn('Could not back up new transcript on sever, stored in browser memory.');
+    }
+
     // Redirect instantly to history so they can edit, copy, or download!
     setCurrentView('history');
   };
 
   // Update transcript (saving edited entries directly back to local server)
   const handleUpdateTranscript = async (updatedTranscript: Transcript) => {
+    setTranscripts((prev) => {
+      const updated = prev.map((t) => (t.id === updatedTranscript.id ? updatedTranscript : t));
+      try {
+        localStorage.setItem('fosiscribe_offline_transcripts', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
     try {
-      const response = await fetch(`/api/transcripts/${updatedTranscript.id}`, {
+      await fetch(`/api/transcripts/${updatedTranscript.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedTranscript),
       });
-
-      if (response.ok) {
-        setTranscripts((prev) => 
-          prev.map((t) => (t.id === updatedTranscript.id ? updatedTranscript : t))
-        );
-      } else {
-        console.error('Failed to sync changes with local database.');
-      }
     } catch (err) {
-      console.error('Error updating transcript:', err);
+      console.warn('Could not sync transcript update to server, updated browser local storage instead.');
     }
   };
 
   // Delete transcript
   const handleDeleteTranscript = async (id: string) => {
+    setTranscripts((prev) => {
+      const updated = prev.filter((t) => t.id !== id);
+      try {
+        localStorage.setItem('fosiscribe_offline_transcripts', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
     try {
-      const response = await fetch(`/api/transcripts/${id}`, {
+      await fetch(`/api/transcripts/${id}`, {
         method: 'DELETE',
       });
-
-      if (response.ok) {
-        setTranscripts((prev) => prev.filter((t) => t.id !== id));
-      } else {
-        console.error('Failed to delete transcript from local database.');
-      }
     } catch (err) {
-      console.error('Error deleting transcript:', err);
+      console.warn('Could not run remote transcript delete, deleted from browser local storage instead.');
     }
   };
 

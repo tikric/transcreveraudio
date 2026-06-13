@@ -224,6 +224,299 @@ export default function TranscribeView({ onTranscriptionSuccess }: TranscribeVie
     setErrorText('');
     setProgressText('Preparando áudio...');
 
+    // Nesting high-performance client-side browser API transcriber
+    const runClientSideTranscription = async (
+      audioBase64: string,
+      name: string,
+      durSec: number
+    ): Promise<Transcript> => {
+      const pauseThreshold = safeGetLocalStorage('fosiscribe_pause_threshold', '1.5');
+      
+      if (provider === 'gemini') {
+        if (!geminiApiKey) {
+          throw new Error(
+            'Chave de API do Gemini não configurada para processamento local. Por favor, forneça sua chave do Gemini abaixo para transcrever diretamente pelo seu navegador.'
+          );
+        }
+        
+        const cleanBytes = audioBase64.split(',')[1] || audioBase64;
+        const formattedPrompt = `You are a professional audio transcription system named FoziScribe.
+Analyze the provided audio file and transcribe it accurately with high verbal fidelity.
+
+Requested Language: ${selectedLanguage}
+
+Strict Requirements:
+1. Break down the audio transcript chronologically into sequential logical Topics/Chapters.
+2. Intersperse Topics where there is a clear pause of at least ${pauseThreshold} seconds, a transition, or a change in topic, exactly as requested.
+3. Every Topic MUST include a short and punchy title, a detailed concise description of the topic, and a list of segment entries.
+4. Each Segment entry MUST include:
+   - "timestamp": String representing timing context matching the audio pause (e.g. "0:00", "0:45", "1:32" etc)
+   - "seconds": Number of seconds from the beginning (integer)
+   - "speaker": A human-like identifier if multiple participants are found (e.g. "Speaker 1" / "Speaker 2" or corresponding names if introduced)
+   - "text": The literal spoken dialogue within that segment.
+5. Provide a summary capturing the main ideas.
+6. Return the response STRICTLY as a valid JSON document conforming to this exact structural schema:
+
+{
+  "title": "A short, fitting title for the transcription file",
+  "summary": "Brief structured summary of the transcribed conversation",
+  "topics": [
+    {
+      "id": "topic-unique-1",
+      "title": "Topic title",
+      "description": "Short explanation of discussion points",
+      "segments": [
+        {
+          "timestamp": "0:00",
+          "seconds": 0,
+          "speaker": "Speaker Name",
+          "text": "Transcription content..."
+        }
+      ]
+    }
+  ]
+}
+
+DO NOT output any markdown blocks (like \`\`\`json), comments, or text intro/outro. Just output the clean JSON object.`;
+
+        const candidateModels = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+        let lastError: any = null;
+        let textOutput = '';
+
+        for (const model of candidateModels) {
+          try {
+            console.log(`Sending browser client request to Gemini model: ${model}`);
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+            const response = await fetch(url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    parts: [
+                      {
+                        inlineData: {
+                          mimeType: 'audio/mp3',
+                          data: cleanBytes,
+                        },
+                      },
+                      {
+                        text: formattedPrompt,
+                      }
+                    ],
+                  }
+                ],
+                generationConfig: {
+                  responseMimeType: 'application/json',
+                },
+              }),
+            });
+
+            if (!response.ok) {
+              const errTxt = await response.text();
+              throw new Error(`Erro na API Gemini (${response.status}): ${errTxt}`);
+            }
+
+            const resData = await response.json();
+            const text = resData?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+              textOutput = text;
+              break;
+            }
+          } catch (err) {
+            console.warn(`Browser Gemini call with model ${model} failed:`, err);
+            lastError = err;
+          }
+        }
+
+        if (!textOutput) {
+          throw lastError || new Error('Não foi possível se conectar à API Google Gemini. Verifique se a sua chave do Gemini está correta e ativa.');
+        }
+
+        let cleanJson = textOutput.trim();
+        if (cleanJson.startsWith('```')) {
+          cleanJson = cleanJson.replace(/^```json\s*/, '').replace(/```$/, '').trim();
+        }
+
+        const aiResult = JSON.parse(cleanJson);
+        return {
+          id: 't_' + Math.random().toString(36).substring(2, 11),
+          title: aiResult.title || name.replace(/\.[^/.]+$/, "") + " (Transcrito)",
+          fileName: name || 'audio.mp3',
+          createdAt: new Date().toISOString(),
+          duration: durSec ? `${Math.floor(durSec / 60)}m ${Math.round(durSec % 60)}s` : '1m 20s',
+          durationSeconds: durSec || 80,
+          language: selectedLanguage,
+          accuracyMode: accuracyMode || 'default',
+          status: 'completed',
+          topics: aiResult.topics || [],
+          summary: aiResult.summary || '',
+          isSimulated: false,
+        };
+      } else {
+        // Groq Whisper + LLaMA client side
+        if (!groqApiKey) {
+          throw new Error(
+            'Chave de API do Groq não configurada neste navegador. Por favor, forneça sua chave do Groq Whisper nas configurações abaixo para transcrever direto do seu navegador.'
+          );
+        }
+
+        const base64Bytes = audioBase64.split(',')[1] || audioBase64;
+        const audioBytes = atob(base64Bytes);
+        const byteNumbers = new Array(audioBytes.length);
+        for (let i = 0; i < audioBytes.length; i++) {
+          byteNumbers[i] = audioBytes.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'audio/mp3' });
+        const formData = new FormData();
+        formData.append('file', blob, name || 'audio.mp3');
+        formData.append('model', 'whisper-large-v3');
+        formData.append('response_format', 'verbose_json');
+        const cleanLang = selectedLanguage ? selectedLanguage.split('-')[0] : 'pt';
+        formData.append('language', cleanLang);
+
+        console.log('Enviando para o Groq Whisper client-side...');
+        const whisperRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${groqApiKey}`,
+          },
+          body: formData,
+        });
+
+        if (!whisperRes.ok) {
+          const errTxt = await whisperRes.text();
+          throw new Error(`Erro no Groq Whisper (${whisperRes.status}): ${errTxt}`);
+        }
+
+        const whisperData = await whisperRes.json();
+        const transcribedText = whisperData.text || '';
+        const inputSegments = whisperData.segments || [];
+
+        const segmentsForPrompt = inputSegments.map((s: any) => ({
+          start: Math.round(s.start || 0),
+          end: Math.round(s.end || 0),
+          text: (s.text || '').trim(),
+        }));
+
+        if (segmentsForPrompt.length === 0 && transcribedText) {
+          segmentsForPrompt.push({
+            start: 0,
+            end: 10,
+            text: transcribedText,
+          });
+        }
+
+        const prompt = `You are a professional audio segmentation assistant named FoziScribe.
+Analyze the provided transcript segments with start/end timing and group them chronologically into structured Topics/Chapters.
+
+Required Language of Output fields: ${selectedLanguage}
+
+Strict Requirements:
+1. Divide the transcript into sequential, logical Topics.
+2. Group consecutive segments that share a cohesive discussion context.
+3. Every Topic MUST include:
+   - "id": a unique string (e.g. "topic-1", "topic-2")
+   - "title": a short, catchy section title (in requested language)
+   - "description": a concise explanation of what the participants talk about in that section (in requested language)
+   - "segments": list of segment entries from the input.
+4. Each segment in the list MUST include:
+   - "timestamp": text format "M:SS" or "H:MM:SS" (e.g. "0:15", "1:32") calculated from standard start seconds.
+   - "seconds": the original integer start seconds.
+   - "speaker": a human-like identifier guessed from the conversation context (e.g. "Alice Santos" or "Bruno Lima" based on names mentioned, or "Palestrante 1" / "Palestrante 2" if not clear). Be consistent.
+   - "text": the original text provided. Do not translate the text if it is in another language than requested, transcribe it or copy it as is.
+5. Provide a fitting "title" for the entire conversation file, and a concise "summary" of the whole meeting/recording.
+
+Format the response ONLY as a valid, parsable JSON matching this schema:
+{
+  "title": "Main title of the recording",
+  "summary": "Overall synthesis of what was discussed",
+  "topics": [
+    {
+      "id": "topic-1",
+      "title": "Topic title",
+      "description": "Topic summary description",
+      "segments": [
+        {
+          "timestamp": "0:00",
+          "seconds": 0,
+          "speaker": "Speaker Name",
+          "text": "The spoken words..."
+        }
+      ]
+    }
+  ]
+}
+
+Input segments with timing:
+${JSON.stringify(segmentsForPrompt, null, 2)}
+
+Do NOT wrap the output in markdown code blocks like \`\`\`json. Output raw JSON ONLY.`;
+
+        const candidateModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+        let chatResText = '';
+        let chatError: any = null;
+
+        for (const model of candidateModels) {
+          try {
+            console.log(`Structuring client-side with Groq LLaMA: ${model}`);
+            const chatRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${groqApiKey}`,
+              },
+              body: JSON.stringify({
+                model: model,
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.1,
+                response_format: { type: 'json_object' },
+              }),
+            });
+
+            if (chatRes.ok) {
+              const chatData = await chatRes.json();
+              chatResText = chatData.choices?.[0]?.message?.content || '';
+              if (chatResText.trim()) {
+                break;
+              }
+            }
+          } catch (err) {
+            console.warn(`Browser chat completion with model ${model} failed:`, err);
+            chatError = err;
+          }
+        }
+
+        if (!chatResText) {
+          throw chatError || new Error('Não foi possível estruturar a transcrição com os modelos LLaMA do Groq. Verifique seus limites e a sua API Key.');
+        }
+
+        let cleanJson = chatResText.trim();
+        if (cleanJson.startsWith('```')) {
+          cleanJson = cleanJson.replace(/^```json\s*/, '').replace(/```$/, '').trim();
+        }
+
+        const aiResult = JSON.parse(cleanJson);
+        return {
+          id: 't_' + Math.random().toString(36).substring(2, 11),
+          title: aiResult.title || name.replace(/\.[^/.]+$/, "") + " (Transcrito)",
+          fileName: name || 'audio.mp3',
+          createdAt: new Date().toISOString(),
+          duration: durSec ? `${Math.floor(durSec / 60)}m ${Math.round(durSec % 60)}s` : '1m 20s',
+          durationSeconds: durSec || 80,
+          language: selectedLanguage,
+          accuracyMode: accuracyMode || 'default',
+          status: 'completed',
+          topics: aiResult.topics || [],
+          summary: aiResult.summary || '',
+          isSimulated: false,
+        };
+      }
+    };
+
     try {
       let audioBase64 = '';
       let name = '';
@@ -244,84 +537,104 @@ export default function TranscribeView({ onTranscriptionSuccess }: TranscribeVie
         throw new Error('Nenhum áudio selecionado.');
       }
 
-      // Proceed to send request to backend
-      const startText = provider === 'groq' 
-        ? 'Enviando para o Groq (Whisper: Transcrição Real)...' 
-        : 'Enviando para a Inteligência Artificial da Google (Gemini)...';
-      setProgressText(startText);
-      
-      // Smart text update
-      const textInterval = setInterval(() => {
-        const phrases = provider === 'groq' 
-          ? [
-              'Extraindo áudio de alta fidelidade com Whisper...',
-              'Analisando pausas e silêncios com Whisper-v3...',
-              'Estruturando tópicos inteligentes com LLaMA...',
-              'Formatando rótulos de palestrantes e legendagem sincronizada...',
-              'Organizando resumo profissional do material...',
-              'Gravando transcrição no banco de dados...'
-            ]
-          : [
-              'Analisando pausas de fala...',
-              'Detectando silêncios maiores que 2s para corte temático...',
-              'Dividindo transcrição em blocos de tópicos estruturados...',
-              'Gerando legendas indexadas automáticas...',
-              'Formatando ortografia e rótulos de palestrantes...',
-              'Sincronizando com armazenamento na nuvem...'
-            ];
-        const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
-        setProgressText(randomPhrase);
-      }, 4000);
-
-      const response = await fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          audioData: audioBase64,
-          fileName: name,
-          language: selectedLanguage,
-          accuracyMode: accuracyMode,
-          durationSeconds: durSec,
-          provider: provider,
-          groqApiKey: groqApiKey,
-          geminiApiKey: geminiApiKey,
-          pauseThreshold: safeGetLocalStorage('fosiscribe_pause_threshold', '1.5')
-        }),
-      });
-
-      clearInterval(textInterval);
-
-      if (!response.ok) {
-        let errMsg = 'Erro desconhecido ao processar o áudio no servidor.';
-        try {
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-            const errorData = await response.json();
-            errMsg = errorData.error || errMsg;
-          } else {
-            // Not JSON - might be a Cloudflare HTML error block (524 Timeout / 413 Entity Too Large)
-            const textResponse = await response.text();
-            if (response.status === 413 || textResponse.includes('413') || textResponse.includes('Request Entity Too Large') || textResponse.includes('Payload Too Large')) {
-              errMsg = 'O arquivo de áudio enviado é muito grande e excedeu o limite máximo do servidor (máx. 50MB no Cloud Run / Cloudflare).';
-            } else if (response.status === 524 || textResponse.includes('524') || textResponse.includes('timeout')) {
-              errMsg = 'Tempo de resposta excedido (Timeout Gateway 524). O Cloudflare interrompeu a requisição por demorar mais de 100 segundos. Tente usar arquivos menores ou use o Groq Whisper para transcrições ultra rápidas.';
-            } else {
-              errMsg = `O servidor respondeu com erro (Status: ${response.status}).`;
-            }
-          }
-        } catch (e) {
-          errMsg = `Erro no processamento (Código ${response.status}).`;
-        }
-        throw new Error(errMsg);
-      }
-
+      // Check if we should execute directly in-browser (Client-side)
+      // If a local key is provided, we prefer direct browser connection. This is incredible because it bypasses proxy gateways, CORS, or serverless platform timeouts completely.
+      const hasLocalKey = (provider === 'gemini' && geminiApiKey) || (provider === 'groq' && groqApiKey);
       let result: Transcript;
-      try {
-        result = await response.json();
-      } catch (jsonErr) {
-        console.error('Failed to parse final transcript JSON:', jsonErr);
-        throw new Error('O formato da resposta do servidor é inválido. A transcrição foi interrompida ou o servidor sofreu um timeout.');
+
+      if (hasLocalKey) {
+        setProgressText('Conectando diretamente com a API (' + provider.toUpperCase() + ' local funcionando sem servidor)...');
+        result = await runClientSideTranscription(audioBase64, name, durSec);
+      } else {
+        // Proceed to send request to backend
+        const startText = provider === 'groq' 
+          ? 'Enviando para o Groq (Whisper: Transcrição Real)...' 
+          : 'Enviando para a Inteligência Artificial da Google (Gemini)...';
+        setProgressText(startText);
+        
+        // Smart text update
+        const textInterval = setInterval(() => {
+          const phrases = provider === 'groq' 
+            ? [
+                'Extraindo áudio de alta fidelidade com Whisper...',
+                'Analisando pausas e silêncios com Whisper-v3...',
+                'Estruturando tópicos inteligentes com LLaMA...',
+                'Formatando rótulos de palestrantes e legendagem sincronizada...',
+                'Organizando resumo profissional do material...',
+                'Gravando transcrição no banco de dados...'
+              ]
+            : [
+                'Analisando pausas de fala...',
+                'Detectando silêncios maiores que 2s para corte temático...',
+                'Dividindo transcrição em blocos de tópicos estruturados...',
+                'Gerando legendas indexadas automáticas...',
+                'Formatando ortografia e rótulos de palestrantes...',
+                'Sincronizando com armazenamento na nuvem...'
+              ];
+          const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
+          setProgressText(randomPhrase);
+        }, 4000);
+
+        try {
+          const response = await fetch('/api/transcribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              audioData: audioBase64,
+              fileName: name,
+              language: selectedLanguage,
+              accuracyMode: accuracyMode,
+              durationSeconds: durSec,
+              provider: provider,
+              groqApiKey: groqApiKey,
+              geminiApiKey: geminiApiKey,
+              pauseThreshold: safeGetLocalStorage('fosiscribe_pause_threshold', '1.5')
+            }),
+          });
+
+          clearInterval(textInterval);
+
+          if (!response.ok) {
+            let errMsg = 'Erro desconhecido ao processar o áudio no servidor.';
+            try {
+              const contentType = response.headers.get('content-type');
+              if (contentType && contentType.includes('application/json')) {
+                const errorData = await response.json();
+                errMsg = errorData.error || errMsg;
+              } else {
+                // Not JSON - might be a Cloudflare HTML error block (524 Timeout / 413 Entity Too Large / 405 Method Not Allowed)
+                const textResponse = await response.text();
+                if (response.status === 405 || textResponse.includes('405') || textResponse.includes('Method Not Allowed')) {
+                  errMsg = 'O servidor retornou erro 405 (Method Not Allowed). Isto ocorre porque o site está rodando de forma estática no Cloudflare sem suporte a backends adicionais. Por favor, cole a sua própria Chave de API do Gemini ou do Groq abaixo para transcrever gratuitamente de forma direta pelo seu navegador!';
+                } else if (response.status === 413 || textResponse.includes('413') || textResponse.includes('Request Entity Too Large') || textResponse.includes('Payload Too Large')) {
+                  errMsg = 'O arquivo de áudio enviado é muito grande e excedeu o limite máximo do servidor (máx. 50MB).';
+                } else if (response.status === 524 || textResponse.includes('524') || textResponse.includes('timeout')) {
+                  errMsg = 'Tempo de resposta excedido (Timeout Gateway 524). O Cloudflare interrompeu a requisição por demorar mais de 100 segundos. Para liberar o processamento sem limites, insira sua própria API Key nas configurações para transcrever diretamente pelo seu navegador!';
+                } else {
+                  errMsg = `O servidor respondeu com erro (Status: ${response.status}). Se o app estiver rodando no Cloudflare, cole sua Chave API abaixo para contornar o limite do servidor e processar de forma direta!`;
+                }
+              }
+            } catch (e) {
+              errMsg = `Erro no processamento do servidor (Código ${response.status}).`;
+            }
+            throw new Error(errMsg);
+          }
+
+          try {
+            result = await response.json();
+          } catch (jsonErr) {
+            console.error('Failed to parse final transcript JSON:', jsonErr);
+            throw new Error('O formato da resposta do servidor é inválido. A transcrição foi interrompida ou o servidor sofreu um de timeout.');
+          }
+        } catch (fetchErr: any) {
+          clearInterval(textInterval);
+          // If fetch fails entirely (network failure / connection refused), it's highly likely a serverless/static context.
+          // Try to give a super clear explanation and fallback if they have keys!
+          console.warn('Backend endpoint fetch failed:', fetchErr);
+          throw new Error('Não foi possível conectar ao servidor de transcrição backend. Como o site está rodando no Cloudflare, cole o seu token (Chave API do Gemini ou Groq) logo abaixo para transcrever de forma direta e gratuita pelo seu navegador!');
+        }
       }
+
       setStatus('success');
       
       // Clean up inputs
