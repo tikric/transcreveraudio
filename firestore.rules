@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Main Transcripts Collection
+    match /transcripts/{transcriptId} {
+      // Any user can fetch a public shared transcript copy. Otherwise, only the owner can read.
+      allow get: if resource.data.isPublic == true || (request.auth != null && resource.data.ownerId == request.auth.uid);
+      allow list: if request.auth != null && resource.data.ownerId == request.auth.uid;
+      
+      allow create: if request.auth != null 
+        && isValidId(transcriptId) 
+        && isValidTranscript(request.resource.data);
+        
+      allow update: if request.auth != null 
+        && isValidId(transcriptId) 
+        && isValidTranscript(request.resource.data)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          // Only the owner of the document can perform updates
+          resource.data.ownerId == request.auth.uid
+        );
+        
+      allow delete: if request.auth != null 
+        && resource.data.ownerId == request.auth.uid;
+    }
+    
+    // Hardened helper functions for validation
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    
+    function isValidTranscript(data) {
+      return data.keys().hasAll(['id', 'title', 'fileName', 'createdAt', 'duration', 'durationSeconds', 'language', 'accuracyMode', 'status', 'ownerId', 'isPublic'])
+        && data.keys().size() >= 11
+        && data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 256
+        && data.fileName is string && data.fileName.size() <= 256
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && data.duration is string && data.duration.size() <= 64
+        && data.durationSeconds is int
+        && data.language is string && data.language.size() <= 16
+        && data.accuracyMode is string && data.accuracyMode.size() <= 16
+        && data.status is string && data.status.size() <= 32
+        && data.ownerId is string && data.ownerId == request.auth.uid
+        && data.isPublic is bool;
+    }
+  }
+}
