@@ -280,11 +280,11 @@ Strict Requirements:
 DO NOT output any markdown blocks (like \`\`\`json), comments, or text intro/outro. Just output the clean JSON object.`;
 
         const candidateModels = [
-          'gemini-3.5-flash',
-          'gemini-flash-latest',
-          'gemini-3.1-pro-preview',
+          'gemini-2.0-flash',
           'gemini-2.5-flash',
-          'gemini-1.5-flash'
+          'gemini-1.5-flash',
+          'gemini-1.5-pro',
+          'gemini-2.5-pro'
         ];
         let lastError: any = null;
         let textOutput = '';
