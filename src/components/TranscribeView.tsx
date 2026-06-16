@@ -284,16 +284,16 @@ Strict Requirements:
 DO NOT output any markdown blocks (like \`\`\`json), comments, or text intro/outro. Just output the clean JSON object.`;
 
         const candidateModels = [
-          'gemini-2.0-flash',
           'gemini-2.5-flash',
-          'gemini-1.5-flash',
-          'gemini-1.5-pro',
-          'gemini-2.5-pro'
+          'gemini-2.0-flash',
+          'gemini-1.5-flash'
         ];
+        let preferredError: any = null;
         let lastError: any = null;
         let textOutput = '';
 
-        for (const model of candidateModels) {
+        for (let i = 0; i < candidateModels.length; i++) {
+          const model = candidateModels[i];
           try {
             console.log(`Sending browser client request to Gemini model: ${model}`);
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
@@ -337,12 +337,15 @@ DO NOT output any markdown blocks (like \`\`\`json), comments, or text intro/out
             }
           } catch (err) {
             console.warn(`Browser Gemini call with model ${model} failed:`, err);
+            if (i === 0) {
+              preferredError = err;
+            }
             lastError = err;
           }
         }
 
         if (!textOutput) {
-          throw lastError || new Error('Não foi possível se conectar à API Google Gemini. Verifique se a sua chave do Gemini está correta e ativa.');
+          throw preferredError || lastError || new Error('Não foi possível se conectar à API Google Gemini. Verifique se a sua chave do Gemini está correta e ativa.');
         }
 
         let cleanJson = textOutput.trim();

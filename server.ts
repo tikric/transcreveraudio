@@ -567,15 +567,15 @@ DO NOT output any markdown blocks (like \`\`\`json), comments, or text intro/out
     let response = null;
     let successfulModel = '';
     const candidateModels = [
-      'gemini-2.0-flash',
       'gemini-2.5-flash',
-      'gemini-1.5-flash',
-      'gemini-1.5-pro',
-      'gemini-2.5-pro'
+      'gemini-2.0-flash',
+      'gemini-1.5-flash'
     ];
+    let preferredError: any = null;
     let lastError: any = null;
 
-    for (const modelName of candidateModels) {
+    for (let i = 0; i < candidateModels.length; i++) {
+      const modelName = candidateModels[i];
       try {
         console.log(`Sending request to Gemini model: ${modelName}`);
         const result = await requestAi.models.generateContent({
@@ -602,12 +602,15 @@ DO NOT output any markdown blocks (like \`\`\`json), comments, or text intro/out
         }
       } catch (err: any) {
         console.warn(`Gemini model ${modelName} attempt failed:`, err?.message || err);
+        if (i === 0) {
+          preferredError = err;
+        }
         lastError = err;
       }
     }
 
     if (!response) {
-      throw lastError || new Error('All candidate Gemini models returned empty or failed.');
+      throw preferredError || lastError || new Error('All candidate Gemini models returned empty or failed.');
     }
 
     const textOutput = response.text || '';
