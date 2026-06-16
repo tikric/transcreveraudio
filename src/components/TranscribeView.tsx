@@ -254,8 +254,12 @@ Strict Requirements:
    - "seconds": Number of seconds from the beginning (integer)
    - "speaker": A human-like identifier if multiple participants are found (e.g. "Speaker 1" / "Speaker 2" or corresponding names if introduced)
    - "text": The literal spoken dialogue within that segment.
-5. Provide a summary capturing the main ideas.
-6. Return the response STRICTLY as a valid JSON document conforming to this exact structural schema:
+5. HIGH DENSITY REQUIREMENT for Segments:
+   - You MUST generate a new, separate segment extremely frequently, specifically every 3 to 4 seconds of dialogue (or at each short phrase or sentence-ending breath).
+   - DO NOT combine multiple sentences or long paragraphs into a single segment block! Keep each segment's duration very brief (3 to 4 seconds maximum of spoken text).
+   - Each segment must be short and crisp (one short phrase per segment).
+6. Provide a summary capturing the main ideas.
+7. Return the response STRICTLY as a valid JSON document conforming to this exact structural schema:
 
 {
   "title": "A short, fitting title for the transcription file",
@@ -434,7 +438,11 @@ Strict Requirements:
    - "seconds": the original integer start seconds.
    - "speaker": a human-like identifier guessed from the conversation context (e.g. "Alice Santos" or "Bruno Lima" based on names mentioned, or "Palestrante 1" / "Palestrante 2" if not clear). Be consistent.
    - "text": the original text provided. Do not translate the text if it is in another language than requested, transcribe it or copy it as is.
-5. Provide a fitting "title" for the entire conversation file, and a concise "summary" of the whole meeting/recording.
+5. HIGH DENSITY REQUIREMENT for Segments:
+   - KEEP THE SEGMENT ENTRIES EXTREMELY FREQUENT AND BRIEF. Since the user requested a very low pause threshold (i.e. every phrase has a small pause), do NOT merge, summarize, or group multiple input segments into huge paragraph blocks of text!
+   - Every single input segment representing 3 to 4 seconds of text from Groq Whisper must remain its own distinct segment element in the JSON list.
+   - DO NOT combine lines. Keep segments separated every 3 to 4 seconds.
+6. Provide a fitting "title" for the entire conversation file, and a concise "summary" of the whole meeting/recording.
 
 Format the response ONLY as a valid, parsable JSON matching this schema:
 {
