@@ -42,56 +42,6 @@ const safeSetLocalStorage = (key: string, value: string) => {
   }
 };
 
-const formatSecondsToTimestamp = (sec: number): string => {
-  if (typeof sec !== 'number' || isNaN(sec) || sec < 0) return '0:00';
-  const roundedSec = Math.round(sec);
-  const h = Math.floor(roundedSec / 3600);
-  const m = Math.floor((roundedSec % 3600) / 60);
-  const s = roundedSec % 60;
-  if (h > 0) {
-    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  }
-  return `${m}:${String(s).padStart(2, '0')}`;
-};
-
-const sanitizeTranscriptData = (t: any): any => {
-  if (!t || !Array.isArray(t.topics)) return t;
-  let maxSeconds = 0;
-  t.topics.forEach((topic: any) => {
-    if (Array.isArray(topic.segments)) {
-      topic.segments.forEach((seg: any) => {
-        let sec = typeof seg.seconds === 'number' ? seg.seconds : parseInt(seg.seconds);
-        if (isNaN(sec)) {
-          if (seg.timestamp && typeof seg.timestamp === 'string') {
-            const parts = seg.timestamp.split(':').map(Number);
-            if (parts.length === 2) {
-              sec = parts[0] * 60 + parts[1];
-            } else if (parts.length === 3) {
-              sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
-            } else {
-              sec = 0;
-            }
-          } else {
-            sec = 0;
-          }
-        }
-        seg.seconds = sec;
-        seg.timestamp = formatSecondsToTimestamp(sec);
-        if (sec > maxSeconds) {
-          maxSeconds = sec;
-        }
-      });
-    }
-  });
-  if (maxSeconds > 0) {
-    t.durationSeconds = maxSeconds;
-    const m = Math.floor(maxSeconds / 60);
-    const s = Math.round(maxSeconds % 60);
-    t.duration = m > 0 ? `${m}m ${s}s` : `${s}s`;
-  }
-  return t;
-};
-
 export default function TranscribeView({ onTranscriptionSuccess }: TranscribeViewProps) {
   // Input Selection States
   const [selectedLanguage, setSelectedLanguage] = useState(() => {
@@ -280,9 +230,7 @@ export default function TranscribeView({ onTranscriptionSuccess }: TranscribeVie
       name: string,
       durSec: number
     ): Promise<Transcript> => {
-      const pauseThresholdRaw = safeGetLocalStorage('fosiscribe_pause_threshold', '1.5');
-      const pauseThresholdNum = parseFloat(pauseThresholdRaw);
-      const pauseThreshold = isNaN(pauseThresholdNum) ? '1.5' : pauseThresholdNum.toFixed(1);
+      const pauseThreshold = safeGetLocalStorage('fosiscribe_pause_threshold', '1.5');
       
       if (provider === 'gemini') {
         if (!geminiApiKey) {
@@ -298,21 +246,16 @@ Analyze the provided audio file and transcribe it accurately with high verbal fi
 Requested Language: ${selectedLanguage}
 
 Strict Requirements:
-1. COMPLETE DIALOGUE TRANSCRIPTION (Ipsissimis Verbis / Verbatim): You MUST transcribe 100% of the spoken words from second 0 to the very last second. Do not stop transcribing early, do not omit any speaker dialogue or sentences, do not summarize, and do not truncate the segments. Every sentence and spoken thought must be fully rendered in the "text" fields.
-2. HIGH-DENSITY MICRO-SEGMENTATION (3 TO 5 SECONDS AVERAGE):
-   - The user requested that each segment (narration block) must be very short—on average 3 to 5 seconds of active speech.
-   - You MUST divide the transcribed speech so that each segment represents strictly 3 to 5 seconds of spoken voice (approx. 4 to 10 words per segment, or split at every slight breath/pause).
-   - NEVER output a segment that contains more than 5 seconds of spoken voice or long paragraphs under a single timestamp.
-   - Additionally, whenever a pause or silence of at least ${pauseThreshold} second(s) occurs, you MUST break the segment right there.
-3. CHRONOLOGICAL CONTINUITY: Map the timeline completely from 0:00 to the end. Since narration is dense and continuous, there must be no timing gaps longer than 5 seconds between segments unless there is absolute flat silence in the audio recording. If a speaker is talking continuously, the end of one segment (calculated) should match the start of the next segment.
-4. Topics & Chapters: Break down the dense stream of segments chronologically into logical Topics/Chapters. Every Topic MUST include a short title, a detailed concise description, and its list of segment entries.
-5. Segment Fields: Each Segment entry MUST include:
-   - "timestamp": String representing mathematically accurate timing from the start (e.g. divide the seconds by 60 for minutes, and remainder is seconds. Thus, 113 seconds MUST format to "1:53" and 218 seconds MUST format to "3:38". Double-check you do not write "2:10" for 218!).
-   - "seconds": Number of seconds from the beginning (integer value).
-   - "speaker": A human-like identifier (e.g., Speaker 1 / Speaker 2, or precise names if they introduce themselves).
-   - "text": The literal spoken dialogue verbatim.
-6. Provide a global summary capturing the main ideas.
-7. Return the response STRICTLY as a valid JSON document conforming to this exact structural schema:
+1. Break down the audio transcript chronologically into sequential logical Topics/Chapters.
+2. Intersperse Topics where there is a clear pause of at least ${pauseThreshold} seconds, a transition, or a change in topic, exactly as requested.
+3. Every Topic MUST include a short and punchy title, a detailed concise description of the topic, and a list of segment entries.
+4. Each Segment entry MUST include:
+   - "timestamp": String representing timing context matching the audio pause (e.g. "0:00", "0:45", "1:32" etc)
+   - "seconds": Number of seconds from the beginning (integer)
+   - "speaker": A human-like identifier if multiple participants are found (e.g. "Speaker 1" / "Speaker 2" or corresponding names if introduced)
+   - "text": The literal spoken dialogue within that segment.
+5. Provide a summary capturing the main ideas.
+6. Return the response STRICTLY as a valid JSON document conforming to this exact structural schema:
 
 {
   "title": "A short, fitting title for the transcription file",
@@ -336,7 +279,13 @@ Strict Requirements:
 
 DO NOT output any markdown blocks (like \`\`\`json), comments, or text intro/outro. Just output the clean JSON object.`;
 
-        const candidateModels = ['gemini-3.5-flash', 'gemini-flash-latest'];
+        const candidateModels = [
+          'gemini-3.5-flash',
+          'gemini-flash-latest',
+          'gemini-3.1-pro-preview',
+          'gemini-2.5-flash',
+          'gemini-1.5-flash'
+        ];
         let lastError: any = null;
         let textOutput = '';
 
@@ -398,7 +347,7 @@ DO NOT output any markdown blocks (like \`\`\`json), comments, or text intro/out
         }
 
         const aiResult = JSON.parse(cleanJson);
-        return sanitizeTranscriptData({
+        return {
           id: 't_' + Math.random().toString(36).substring(2, 11),
           title: aiResult.title || name.replace(/\.[^/.]+$/, "") + " (Transcrito)",
           fileName: name || 'audio.mp3',
@@ -411,7 +360,7 @@ DO NOT output any markdown blocks (like \`\`\`json), comments, or text intro/out
           topics: aiResult.topics || [],
           summary: aiResult.summary || '',
           isSimulated: false,
-        });
+        };
       } else {
         // Groq Whisper + LLaMA client side
         if (!groqApiKey) {
@@ -473,23 +422,18 @@ Analyze the provided transcript segments with start/end timing and group them ch
 Required Language of Output fields: ${selectedLanguage}
 
 Strict Requirements:
-1. NO SEGMENT LOSS (GUARANTEED TRANSCRIPTION): You MUST preserve 100% of the input text or segments. Every spoken sentence and word must be fully represented.
-2. MICRO-SEGMENT DIVISION (3 TO 5 SECONDS AVERAGE):
-   - The user requested segments/narration blocks to average between 3 to 5 seconds of active speech.
-   - If any input segment spans more than 5 seconds, or contains multiple sentences or long clauses, you MUST split/subdivide it into multiple smaller sequential segments in your JSON output.
-   - Assign reasonable intermediate "seconds" values and "timestamp" formats (e.g. if an input segment starts at 10 and ends at 20, split it into two segments starting at 10 and 15 respectively).
-   - Each resulting segment field "text" should contain only 3 to 5 seconds worth of narrative words (usually 4 to 10 words). NEVER output a segment containing long sentences or spanning more than 5 seconds as it defaults to low-resolution mappings.
-3. PAUSE-BASED TOPIC SPLITTING: Since the user set a pause threshold of ${pauseThreshold} seconds, whenever a quiet gap of at least ${pauseThreshold} seconds occurs between consecutive segments (meaning: next.start - current.end >= ${pauseThreshold}), or when there is a change of active speaker, or a transition in subject, you MUST start a NEW Topic/Chapter.
-4. Every Topic MUST include:
+1. Divide the transcript into sequential, logical Topics.
+2. Group consecutive segments that share a cohesive discussion context.
+3. Every Topic MUST include:
    - "id": a unique string (e.g. "topic-1", "topic-2")
    - "title": a short, catchy section title (in requested language)
    - "description": a concise explanation of what the participants talk about in that section (in requested language)
-   - "segments": list of segment entries from the input inside this topic.
+   - "segments": list of segment entries from the input.
 4. Each segment in the list MUST include:
-   - "timestamp": text format "M:SS" or "H:MM:SS" calculated from its start seconds.
+   - "timestamp": text format "M:SS" or "H:MM:SS" (e.g. "0:15", "1:32") calculated from standard start seconds.
    - "seconds": the original integer start seconds.
-   - "speaker": a human-like identifier guessed from the conversation context (e.g. "Alice Santos" or "Bruno Lima" based on names mentioned, or "Palestrante 1" / "Palestrante 2" if not clear). Keep names consistent across topics.
-   - "text": the original text provided in the input segment. Do NOT summarize or clip the original text; preserve every single word exactly as given.
+   - "speaker": a human-like identifier guessed from the conversation context (e.g. "Alice Santos" or "Bruno Lima" based on names mentioned, or "Palestrante 1" / "Palestrante 2" if not clear). Be consistent.
+   - "text": the original text provided. Do not translate the text if it is in another language than requested, transcribe it or copy it as is.
 5. Provide a fitting "title" for the entire conversation file, and a concise "summary" of the whole meeting/recording.
 
 Format the response ONLY as a valid, parsable JSON matching this schema:
@@ -562,7 +506,7 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Output raw JSON 
         }
 
         const aiResult = JSON.parse(cleanJson);
-        return sanitizeTranscriptData({
+        return {
           id: 't_' + Math.random().toString(36).substring(2, 11),
           title: aiResult.title || name.replace(/\.[^/.]+$/, "") + " (Transcrito)",
           fileName: name || 'audio.mp3',
@@ -575,7 +519,7 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Output raw JSON 
           topics: aiResult.topics || [],
           summary: aiResult.summary || '',
           isSimulated: false,
-        });
+        };
       }
     };
 
@@ -650,10 +594,7 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Output raw JSON 
               provider: provider,
               groqApiKey: groqApiKey,
               geminiApiKey: geminiApiKey,
-              pauseThreshold: (() => {
-                const val = parseFloat(safeGetLocalStorage('fosiscribe_pause_threshold', '1.5'));
-                return isNaN(val) ? '1.5' : val.toFixed(1);
-              })()
+              pauseThreshold: safeGetLocalStorage('fosiscribe_pause_threshold', '1.5')
             }),
           });
 
@@ -726,10 +667,7 @@ Do NOT wrap the output in markdown code blocks like \`\`\`json. Output raw JSON 
           <span className="bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400">Nova Transcrição Inteligente</span>
         </h2>
         <p className="text-gray-400 text-sm mt-1">
-          A IA analisa as oscilações de voz e pausas maiores que {(() => {
-            const val = parseFloat(safeGetLocalStorage('fosiscribe_pause_threshold', '1.5'));
-            return isNaN(val) ? '1.5' : val.toFixed(1);
-          })()} segundos para fatiar seus conteúdos automaticamente em tópicos descritivos e legendas editáveis.
+          A IA analisa as oscilações de voz e pausas maiores que {safeGetLocalStorage('fosiscribe_pause_threshold', '1.5')} segundos para fatiar seus conteúdos automaticamente em tópicos descritivos e legendas editáveis.
         </p>
       </div>
 

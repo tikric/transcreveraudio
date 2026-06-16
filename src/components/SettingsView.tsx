@@ -37,9 +37,7 @@ export default function SettingsView() {
     return safeGetLocalStorage('fosiscribe_default_language', 'pt-BR');
   });
   const [pauseThreshold, setPauseThreshold] = useState(() => {
-    const val = safeGetLocalStorage('fosiscribe_pause_threshold', '1.5');
-    const num = parseFloat(val);
-    return isNaN(num) ? '1.5' : num.toFixed(1);
+    return safeGetLocalStorage('fosiscribe_pause_threshold', '1.5'); // default to 1.5s
   });
   const [autoSummary, setAutoSummary] = useState(() => {
     return safeGetLocalStorage('fosiscribe_auto_summary', 'true') === 'true';
@@ -49,6 +47,27 @@ export default function SettingsView() {
   });
   
   const [savedStatus, setSavedStatus] = useState(false);
+
+  // Conversion helpers for seconds and milliseconds
+  const numericValue = parseFloat(pauseThreshold) || 1.5;
+  const currentSecs = Math.floor(numericValue);
+  const currentMs = Math.round((numericValue - currentSecs) * 1000);
+
+  const handleUpdateSecs = (val: string) => {
+    const s = Math.max(0, Math.min(15, parseInt(val) || 0));
+    const newVal = s + (currentMs / 1000);
+    setPauseThreshold(newVal.toFixed(3));
+  };
+
+  const handleUpdateMs = (val: string) => {
+    const ms = Math.max(0, Math.min(999, parseInt(val) || 0));
+    const newVal = currentSecs + (ms / 1000);
+    setPauseThreshold(newVal.toFixed(3));
+  };
+
+  const handleSliderChange = (val: string) => {
+    setPauseThreshold(val);
+  };
 
   const handleSave = () => {
     safeSetLocalStorage('fosiscribe_default_language', defaultLanguage);
@@ -81,8 +100,8 @@ export default function SettingsView() {
             <span>Processamento e Divisões da IA</span>
           </h3>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div className="space-y-2 text-left">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-3 text-left">
               <label className="block text-xs font-semibold text-gray-300">Idioma de Cadastro Padrão</label>
               <select
                 value={defaultLanguage}
@@ -90,47 +109,113 @@ export default function SettingsView() {
                 className="w-full bg-black/45 border border-white/10 text-white text-xs rounded-xl px-3 py-2.5 outline-none cursor-pointer focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
               >
                 {SUPPORTED_LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code} className="bg-[#0e0d16] text-[#b3b3b3]">
+                   <option key={lang.code} value={lang.code} className="bg-[#0e0d16] text-[#b3b3b3]">
                     {lang.flag} {lang.nativeName}
                   </option>
                 ))}
               </select>
-              <p className="text-[10px] text-gray-400">Define o idioma selecionado por padrão ao carregar a página de transcrição de áudio.</p>
+              <p className="text-[10px] text-gray-400 leading-normal">Define o idioma selecionado por padrão ao carregar a página de transcrição de áudio.</p>
             </div>
 
-            <div className="space-y-2 text-left">
-              <label className="block text-xs font-semibold text-gray-300">Sensibilidade de Pausa (Silêncio)</label>
-              <select
-                value={pauseThreshold}
-                onChange={(e) => setPauseThreshold(e.target.value)}
-                className="w-full bg-black/45 border border-white/10 text-white text-xs rounded-xl px-3 py-2.5 outline-none cursor-pointer focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-              >
-                <option value="0.1" className="bg-[#0e0d16] text-[#b3b3b3]">0.1 segundos (Corte ultra-rápido instantâneo)</option>
-                <option value="0.2" className="bg-[#0e0d16] text-[#b3b3b3]">0.2 segundos</option>
-                <option value="0.3" className="bg-[#0e0d16] text-[#b3b3b3]">0.3 segundos</option>
-                <option value="0.4" className="bg-[#0e0d16] text-[#b3b3b3]">0.4 segundos</option>
-                <option value="0.5" className="bg-[#0e0d16] text-[#b3b3b3]">0.5 segundos (Corte rápido por sílabas/mínima pausa)</option>
-                <option value="0.6" className="bg-[#0e0d16] text-[#b3b3b3]">0.6 segundos</option>
-                <option value="0.7" className="bg-[#0e0d16] text-[#b3b3b3]">0.7 segundos</option>
-                <option value="0.8" className="bg-[#0e0d16] text-[#b3b3b3]">0.8 segundos</option>
-                <option value="0.9" className="bg-[#0e0d16] text-[#b3b3b3]">0.9 segundos</option>
-                <option value="1.0" className="bg-[#0e0d16] text-[#b3b3b3]">1.0 segundo (Cortes ultra frequentes - Sensibilidade Máxima)</option>
-                <option value="1.1" className="bg-[#0e0d16] text-[#b3b3b3]">1.1 segundos</option>
-                <option value="1.2" className="bg-[#0e0d16] text-[#b3b3b3]">1.2 segundos</option>
-                <option value="1.3" className="bg-[#0e0d16] text-[#b3b3b3]">1.3 segundos</option>
-                <option value="1.4" className="bg-[#0e0d16] text-[#b3b3b3]">1.4 segundos</option>
-                <option value="1.5" className="bg-[#0e0d16] text-[#b3b3b3]">1.5 segundos (Padrão recomendado)</option>
-                <option value="1.6" className="bg-[#0e0d16] text-[#b3b3b3]">1.6 segundos</option>
-                <option value="1.7" className="bg-[#0e0d16] text-[#b3b3b3]">1.7 segundos</option>
-                <option value="1.8" className="bg-[#0e0d16] text-[#b3b3b3]">1.8 segundos</option>
-                <option value="1.9" className="bg-[#0e0d16] text-[#b3b3b3]">1.9 segundos</option>
-                <option value="2.0" className="bg-[#0e0d16] text-[#b3b3b3]">2.0 segundos (Cortes espaçados)</option>
-                <option value="2.5" className="bg-[#0e0d16] text-[#b3b3b3]">2.5 segundos</option>
-                <option value="3.0" className="bg-[#0e0d16] text-[#b3b3b3]">3.0 segundos (Ideal para palestras)</option>
-                <option value="4.0" className="bg-[#0e0d16] text-[#b3b3b3]">4.0 segundos</option>
-                <option value="5.0" className="bg-[#0e0d16] text-[#b3b3b3]">5.0 segundos (Cortes apenas para repouso completo)</option>
-              </select>
-              <p className="text-[10px] text-gray-400">Intervalo de ausência de voz necessário para que a Inteligência Artificial decida criar um novo bloco temática.</p>
+            <div className="space-y-3 text-left">
+              <label className="block text-xs font-semibold text-gray-300 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Sensibilidade de Pausa (Silêncio)</span>
+              </label>
+
+              <div className="bg-black/30 border border-white/10 rounded-2xl p-4 space-y-4 shadow-inner">
+                {/* Visual feedback of values */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-400 text-[11px]">Tempo de silêncio:</span>
+                  <span className="font-mono text-xs font-semibold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                    {currentSecs}s {currentMs > 0 ? `${currentMs}ms` : '000ms'} ({numericValue.toFixed(2)}s)
+                  </span>
+                </div>
+
+                {/* Number inputs side by side */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <span className="block text-[10px] text-gray-400 uppercase tracking-wider">Segundos</span>
+                    <div className="relative flex items-center">
+                      <input
+                        type="number"
+                        min="0"
+                        max="15"
+                        step="1"
+                        value={currentSecs}
+                        onChange={(e) => handleUpdateSecs(e.target.value)}
+                        className="w-full bg-black/30 border border-white/10 text-white font-mono text-xs rounded-lg pl-2.5 pr-8 py-1.5 focus:border-indigo-500 outline-none"
+                      />
+                      <span className="absolute right-2 text-[10px] text-gray-500">seg</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="block text-[10px] text-gray-400 uppercase tracking-wider">Milissegundos</span>
+                    <div className="relative flex items-center">
+                      <input
+                        type="number"
+                        min="0"
+                        max="999"
+                        step="50"
+                        value={currentMs}
+                        onChange={(e) => handleUpdateMs(e.target.value)}
+                        className="w-full bg-black/30 border border-white/10 text-white font-mono text-xs rounded-lg pl-2.5 pr-8 py-1.5 focus:border-indigo-500 outline-none"
+                      />
+                      <span className="absolute right-2 text-[10px] text-gray-500">ms</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Slider */}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-[9px] text-gray-500 font-mono">
+                    <span>Mín: 0.1s (100ms)</span>
+                    <span>Máx: 10.0s (10s)</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="10.0"
+                    step="0.05"
+                    value={numericValue}
+                    onChange={(e) => handleSliderChange(e.target.value)}
+                    className="w-full accent-indigo-500 h-1 bg-white/10 rounded-lg cursor-pointer"
+                  />
+                </div>
+
+                {/* Presets */}
+                <div className="space-y-1 pt-1 border-t border-white/5">
+                  <span className="block text-[9px] text-gray-400 font-medium uppercase tracking-wider mb-1.5">Sugestões Rápidas:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { val: '0.8', title: '800ms', label: 'Rápido' },
+                      { val: '1.0', title: '1.0s', label: 'Fluido' },
+                      { val: '1.5', title: '1.5s', label: 'Padrão' },
+                      { val: '2.0', title: '2.0s', label: 'Discursos' },
+                      { val: '3.0', title: '3.0s', label: 'Palestras' },
+                      { val: '5.0', title: '5.0s', label: 'Especial' }
+                    ].map((preset) => (
+                      <button
+                        key={preset.val}
+                        type="button"
+                        onClick={() => setPauseThreshold(preset.val)}
+                        className={`text-[9px] px-2 py-0.5 rounded transition-all ${
+                          Math.abs(parseFloat(preset.val) - numericValue) < 0.01
+                            ? 'bg-indigo-600 text-white border border-indigo-500/50 font-semibold'
+                            : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/15'
+                        }`}
+                      >
+                        {preset.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-gray-400 leading-normal">
+                Intervalo de silêncio (em segundos e milissegundos) considerado para que a Inteligência Artificial decida fatiar e criar um novo bloco temático nos tópicos.
+              </p>
             </div>
           </div>
         </div>
